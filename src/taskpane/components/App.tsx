@@ -76,12 +76,17 @@ export const App: React.FC<AppProps> = ({ title }) => {
   useEffect(() => {
     async function load() {
       try {
+        // Derive the base path from the current page URL so asset paths work
+        // under both dev (localhost:3000/) and prod (github.io/TeX2WordAddin/)
+        const pagePath = window.location.pathname; // e.g. "/TeX2WordAddin/taskpane.html"
+        const basePath = pagePath.substring(0, pagePath.lastIndexOf("/") + 1); // e.g. "/TeX2WordAddin/"
+
         // Load stylesheet
-        await MathConversionEngine.loadStylesheet();
+        await MathConversionEngine.loadStylesheet(basePath);
         
         // Dynamically load MathJax if not present
         if (!(window as any).MathJax) {
-          const localFontUrl = window.location.origin + "/assets/output/chtml/fonts/woff-v2";
+          const localFontUrl = window.location.origin + basePath + "assets/output/chtml/fonts/woff-v2";
           // Configure MathJax to load font WOFFs from local server to avoid 404 errors and cross-origin blocking
           (window as any).MathJax = {
             chtml: {
@@ -99,7 +104,7 @@ export const App: React.FC<AppProps> = ({ title }) => {
           };
           await new Promise<void>((resolve, reject) => {
             const script = document.createElement("script");
-            script.src = "assets/tex-mml-chtml.js";
+            script.src = basePath + "assets/tex-mml-chtml.js";
             script.type = "text/javascript";
             script.onload = () => resolve();
             script.onerror = () => reject(new Error("Failed to load MathJax script"));
@@ -396,7 +401,7 @@ export const App: React.FC<AppProps> = ({ title }) => {
       {loadingError && (
         <div style={styles.errorBanner}>
           <strong>环境初始化失败:</strong> {loadingError}
-          <div style={{ marginTop: "4px", fontSize: "10px" }}>请检查本地 https://localhost:3000 服务是否正常启动及 SSL 证书。</div>
+          <div style={{ marginTop: "4px", fontSize: "10px" }}>请刷新页面或检查网络连接后重试。</div>
         </div>
       )}
 

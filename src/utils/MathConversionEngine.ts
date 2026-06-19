@@ -72,9 +72,9 @@ export class MathConversionEngine {
     this.logs = [];
   }
 
-  public static async loadStylesheet(): Promise<void> {
+  public static async loadStylesheet(basePath: string = "/"): Promise<void> {
     if (this.xsltStylesheetText) return;
-    const response = await fetch("/assets/mml2omml.xsl");
+    const response = await fetch(basePath + "assets/mml2omml.xsl");
     if (!response.ok) {
       throw new Error(`Failed to load XSLT stylesheet from server: ${response.statusText}`);
     }
