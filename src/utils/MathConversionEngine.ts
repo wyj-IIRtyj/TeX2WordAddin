@@ -173,8 +173,12 @@ export class MathConversionEngine {
     try {
       // 1. 调用 MathJax 生成 standard MathML
       this.log("DEBUG", "状态 1: 正在调用 MathJax.tex2mml...");
-      const mathml = MathJaxShim.tex2mml(optimized);
+      let mathml = MathJaxShim.tex2mml(optimized);
       this.log("DEBUG", "状态 1 成功: MathML 字符生成完毕", { mathml: mathml });
+
+      // [新增逻辑] 1.5 AST 树干预：强制兼容定界符标签
+      mathml = polyfillMfenced(mathml);
+      this.log("DEBUG", "状态 1.5: 括号闭合兼容性转换完毕", { mathml: mathml });
 
       // 2. 将 MathML 通过 XSLT 脚本转换为 Word 的 OMML 格式
       const ommlSnippet = this.convertMathmlToOmmlViaXslt(mathml);
@@ -354,3 +358,59 @@ export function optimizeLatexFormula(latex: string): string {
   return optimized;
 }
 
+export function polyfillMfenced(mathmlString: string): string {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(mathmlString, "text/xml");
+    
+    // 关键事实核查点：必须使用 Array.from().reverse() 实现 Bottom-Up（自底向上）遍历。
+    // 如果自顶向下替换 DOM，外层 mrow 被替换为 mfenced 后，内层的节点引用会断裂，导致嵌套括号转换失败。
+    const mrows = Array.from(doc.querySelectorAll("mrow")).reverse();
+    
+    mrows.forEach(mrow => {
+      const first = mrow.firstElementChild;
+      const last = mrow.lastElementChild;
+      
+      // 检查当前 block 是否是以操作符 (mo) 开头和结尾
+      if (!first || !last || first === last) return;
+      if (first.tagName !== "mo" || last.tagName !== "mo") return;
+
+      const openChar = first.textContent?.trim() || "";
+      const closeChar = last.textContent?.trim() || "";
+
+      // 常见定界符字典 (涵盖了你项目所需的括号、绝对值、范数)
+      const leftDelims = ['(', '[', '{', '|', '‖', '⟨', '〈'];
+      const rightDelims = [')', ']', '}', '|', '‖', '⟩', '〉'];
+
+      if (leftDelims.includes(openChar) && rightDelims.includes(closeChar)) {
+        // 1. 生成 Office XSLT 能识别的 <mfenced> 标签
+        const mfenced = doc.createElementNS("http://www.w3.org/1998/Math/MathML", "mfenced");
+        mfenced.setAttribute("open", openChar);
+        mfenced.setAttribute("close", closeChar);
+        
+        // 覆盖 MathML 的默认逗号分隔符，防止 (a,b) 内部莫名其妙多出字符
+        mfenced.setAttribute("separators", ""); 
+
+        // 2. 提取并迁移中间的核心内容 (跳过首尾的括号)
+        const childrenToMove = [];
+        let current = first.nextElementSibling;
+        while (current && current !== last) {
+          childrenToMove.push(current);
+          current = current.nextElementSibling;
+        }
+        
+        childrenToMove.forEach(child => mfenced.appendChild(child));
+
+        // 3. 物理替换原节点
+        if (mrow.parentNode) {
+          mrow.parentNode.replaceChild(mfenced, mrow);
+        }
+      }
+    });
+    
+    return new XMLSerializer().serializeToString(doc);
+  } catch (e) {
+    console.error("[TeX2WordAddin] Mfenced Polyfill failed", e);
+    return mathmlString; // 容灾处理：发生异常时直接返回原字符，保证管道不崩溃
+  }
+}
